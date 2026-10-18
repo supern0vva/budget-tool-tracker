@@ -10,8 +10,6 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- Optional local config; empty by default so the app stays offline-first. -->
-    <script src="firebase-config.js"></script>
     <script>
         tailwind.config = {
             darkMode: 'class',
@@ -2096,7 +2094,7 @@
             const history = JSON.parse(localStorage.getItem(BACKUP_KEY) || '[]');
             el.textContent = history.length ? `Automatic local versions: ${history.length} (latest ${new Date(history[history.length - 1].at).toLocaleString()}).` : 'Automatic local versions will appear after your next edit.';
             const sync = document.getElementById('sync-status');
-            if (sync) sync.textContent = window.BUDGET_FIREBASE_CONFIG && window.BUDGET_FIREBASE_CONFIG.apiKey ? 'Firebase configuration detected; sync hooks are ready but sign-in is required.' : 'Local-only mode: add your Firebase config file to enable cloud hooks.';
+            if (sync) sync.textContent = window.BUDGET_FIREBASE_CONFIG && window.BUDGET_FIREBASE_CONFIG.apiKey ? 'Firebase configuration detected; sync hooks are ready but sign-in is required.' : 'Local-only mode: provide Firebase config at runtime to enable cloud hooks.';
         }
         function renderEnhancements() { renderForecast(); renderDebts(); renderEmergency(); renderBudgets(); renderBackups(); }
         window.saveMonthlyBudget = function() {
