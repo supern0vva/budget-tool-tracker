@@ -451,6 +451,40 @@
                     </div>
                 </div>
 
+                <!-- Cash-flow Forecast Income Assumptions -->
+                <div class="bg-slate-800 p-5 rounded-xl border border-slate-700 shadow-sm space-y-4">
+                    <h3 class="text-base font-semibold text-white border-b border-slate-700 pb-2"><i class="fa-solid fa-chart-line text-emerald-400 mr-2"></i>Cash-flow Forecast Income</h3>
+                    <p class="text-xs text-slate-400">Optional assumptions used when future months do not have a recorded paycheck.</p>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-300 mb-1">Hourly Pay ($)</label>
+                            <input type="number" step="0.01" min="0" id="forecast-hourly-rate" placeholder="0.00" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-white text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-300 mb-1">Hours / Week</label>
+                            <input type="number" step="0.25" min="0" id="forecast-hours-week" placeholder="40" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-white text-sm">
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-300 mb-1">Tax deduction</label>
+                            <select id="forecast-deduction-type" onchange="toggleForecastDeduction()" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-white text-sm">
+                                <option value="none">No deduction</option>
+                                <option value="percent">Percentage</option>
+                                <option value="amount">Fixed monthly amount</option>
+                            </select>
+                        </div>
+                        <div id="forecast-deduction-value-wrap" class="hidden">
+                            <label id="forecast-deduction-value-label" class="block text-xs font-medium text-slate-300 mb-1">Deduction</label>
+                            <input type="number" step="0.01" min="0" id="forecast-deduction-value" placeholder="0.00" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-white text-sm">
+                        </div>
+                    </div>
+                    <button onclick="saveForecastSettings()" class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-semibold transition">
+                        <i class="fa-solid fa-save mr-2"></i>Save Forecast Assumptions
+                    </button>
+                    <p id="forecast-settings-summary" class="text-xs text-slate-400"></p>
+                </div>
+
                 <!-- Category Manager -->
                 <div class="bg-slate-800 p-5 rounded-xl border border-slate-700 shadow-sm space-y-4">
                     <h3 class="text-base font-semibold text-white border-b border-slate-700 pb-2"><i class="fa-solid fa-tags text-indigo-400 mr-2"></i>Category Manager</h3>
@@ -811,6 +845,7 @@
         let state = {
             startingBalance: 2500.00,
             targets: { needs: 50, wants: 30, savings: 20 },
+            forecastIncome: { hourlyRate: 0, hoursPerWeek: 0, deductionType: 'none', deductionValue: 0 },
             categories: [...DEFAULT_CATEGORIES],
             paychecks: [],
             bills: [],
@@ -820,6 +855,8 @@
 
         function normalizeState() {
             state.targets = { needs: 50, wants: 30, savings: 20, ...(state.targets || {}) };
+            state.forecastIncome = { hourlyRate: 0, hoursPerWeek: 0, deductionType: 'none', deductionValue: 0, ...(state.forecastIncome || {}) };
+            if (!['none', 'percent', 'amount'].includes(state.forecastIncome.deductionType)) state.forecastIncome.deductionType = 'none';
             state.categories = Array.isArray(state.categories) && state.categories.length ? state.categories : [...DEFAULT_CATEGORIES];
             ['paychecks', 'bills', 'spending', 'savings'].forEach(key => { if (!Array.isArray(state[key])) state[key] = []; });
             state.bills = state.bills.map(b => ({ frequency: 'Monthly', reminderDays: 3, ...b }));
@@ -991,6 +1028,22 @@
             return (parseFloat(val) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         }
 
+        function getForecastMonthlyIncome() {
+            const assumptions = state.forecastIncome || {};
+            const gross = Math.max(0, +assumptions.hourlyRate || 0) * Math.max(0, +assumptions.hoursPerWeek || 0) * 52 / 12;
+            const deduction = assumptions.deductionType === 'percent'
+                ? gross * Math.min(100, Math.max(0, +assumptions.deductionValue || 0)) / 100
+                : assumptions.deductionType === 'amount'
+                    ? Math.min(gross, Math.max(0, +assumptions.deductionValue || 0))
+                    : 0;
+            return Math.max(0, gross - deduction);
+        }
+
+        function hasForecastIncomeAssumptions() {
+            const assumptions = state.forecastIncome || {};
+            return (+assumptions.hourlyRate || 0) > 0 && (+assumptions.hoursPerWeek || 0) > 0;
+        }
+
         function updateAllocationLabels() {
             const labels = { Needs: `Needs (${state.targets.needs}%)`, Wants: `Wants (${state.targets.wants}%)`, Savings: `Savings/Debt (${state.targets.savings}%)` };
             ['bill-bucket', 'spending-bucket'].forEach(id => {
@@ -1080,7 +1133,8 @@
 
             const forecast = document.getElementById('cashflow-forecast');
             const recurring = state.bills.filter(b => b.frequency && b.frequency !== 'One-time').reduce((sum, b) => sum + (+b.amount || 0), 0);
-            const avgIncome = state.paychecks.length ? state.paychecks.reduce((sum, p) => sum + (+p.takeHome || 0), 0) / Math.max(1, new Set(state.paychecks.map(p => (p.date || '').substring(0, 7))).size) : 0;
+            const recordedAverageIncome = state.paychecks.length ? state.paychecks.reduce((sum, p) => sum + (+p.takeHome || 0), 0) / Math.max(1, new Set(state.paychecks.map(p => (p.date || '').substring(0, 7))).size) : 0;
+            const avgIncome = hasForecastIncomeAssumptions() ? getForecastMonthlyIncome() : recordedAverageIncome;
             const projected = state.startingBalance + avgIncome - recurring - (spending + Math.max(0, savings));
             forecast.innerHTML = `<div class="flex justify-between"><span>Next month income</span><strong class="text-emerald-400">$${formatCurrency(avgIncome)}</strong></div><div class="flex justify-between"><span>Recurring bills</span><strong class="text-blue-400">$${formatCurrency(recurring)}</strong></div><div class="flex justify-between"><span>Projected balance</span><strong class="${projected < 0 ? 'text-rose-400' : 'text-white'}">$${formatCurrency(projected)}</strong></div>`;
 
@@ -1792,8 +1846,40 @@
             document.getElementById('setting-needs-pct').value = state.targets.needs;
             document.getElementById('setting-wants-pct').value = state.targets.wants;
             document.getElementById('setting-savings-pct').value = state.targets.savings;
+            const forecast = state.forecastIncome;
+            document.getElementById('forecast-hourly-rate').value = forecast.hourlyRate || '';
+            document.getElementById('forecast-hours-week').value = forecast.hoursPerWeek || '';
+            document.getElementById('forecast-deduction-type').value = forecast.deductionType;
+            document.getElementById('forecast-deduction-value').value = forecast.deductionValue || '';
+            toggleForecastDeduction();
+            document.getElementById('forecast-settings-summary').textContent = getForecastMonthlyIncome()
+                ? `Estimated monthly take-home: $${formatCurrency(getForecastMonthlyIncome())}`
+                : 'Add hourly pay and hours to estimate monthly take-home income.';
 
             renderCategoryList();
+        }
+
+        function toggleForecastDeduction() {
+            const type = document.getElementById('forecast-deduction-type').value;
+            const wrap = document.getElementById('forecast-deduction-value-wrap');
+            const label = document.getElementById('forecast-deduction-value-label');
+            wrap.classList.toggle('hidden', type === 'none');
+            label.textContent = type === 'percent' ? 'Deduction (%)' : 'Deduction ($ / month)';
+        }
+
+        function saveForecastSettings() {
+            const hourlyRate = parseFloat(document.getElementById('forecast-hourly-rate').value) || 0;
+            const hoursPerWeek = parseFloat(document.getElementById('forecast-hours-week').value) || 0;
+            const deductionType = document.getElementById('forecast-deduction-type').value;
+            const deductionValue = parseFloat(document.getElementById('forecast-deduction-value').value) || 0;
+            if (hourlyRate < 0 || hoursPerWeek < 0 || deductionValue < 0 || (deductionType === 'percent' && deductionValue > 100)) {
+                showToast('Enter valid non-negative income and deduction values.', 'error');
+                return;
+            }
+            state.forecastIncome = { hourlyRate, hoursPerWeek, deductionType, deductionValue };
+            saveToLocalStorage();
+            renderApp();
+            showToast('Forecast assumptions saved!', 'success');
         }
 
         function saveTargetPercentages() {
@@ -2046,7 +2132,7 @@
             let spending = state.spending.filter(x => monthKey(x.date) === month).reduce((a, x) => a + (+x.amount || 0), 0);
             if (projected && !income) {
                 const recent = state.paychecks.slice(-6).reduce((a, x) => a + (+x.takeHome || 0), 0);
-                income = state.paychecks.length ? recent / Math.min(3, state.paychecks.length) : 0;
+                income = hasForecastIncomeAssumptions() ? getForecastMonthlyIncome() : state.paychecks.length ? recent / Math.min(3, state.paychecks.length) : 0;
                 bills = state.bills.filter(x => ['Monthly', 'Quarterly', 'Yearly'].includes(x.frequency || 'Monthly')).reduce((a, x) => a + (+x.amount || 0) / (x.frequency === 'Quarterly' ? 3 : x.frequency === 'Yearly' ? 12 : 1), 0);
                 spending = state.spending.length ? state.spending.reduce((a, x) => a + (+x.amount || 0), 0) / Math.max(1, new Set(state.spending.map(x => monthKey(x.date))).size) : 0;
             }
